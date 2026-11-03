@@ -3572,7 +3572,7 @@ createApp({
         };
         dhaList.value.push(newDha);
         if (isOnline.value) {
-          fetch('/api/masters/dha', {
+          fetch(`${API_BASE}/masters/dha`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newDha)
@@ -3591,7 +3591,7 @@ createApp({
           item.saldo = cleanAnggaran;
           item.naturalAkun = cleanNatural;
           if (isOnline.value && item.id) {
-            fetch(`/api/masters/dha/${item.id}`, {
+            fetch(`${API_BASE}/masters/dha/${item.id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(item)
@@ -3622,7 +3622,7 @@ createApp({
       });
       if (!confirmed) return;
       if (isOnline.value && item && item.id) {
-        fetch(`/api/masters/dha/${item.id}`, { method: 'DELETE' }).catch(e => console.warn('Gagal sync hapus DHA ke API:', e.message));
+        fetch(`${API_BASE}/masters/dha/${item.id}`, { method: 'DELETE' }).catch(e => console.warn('Gagal sync hapus DHA ke API:', e.message));
       }
       dhaList.value = dhaList.value.filter(d => !(d.id === identifier || d.dha === identifier || d.nama === identifier));
       try {
@@ -4098,7 +4098,7 @@ createApp({
         let apiErrorMsg = '';
         if (isOnline.value) {
           try {
-            const res = await fetch('/api/masters/dha/import', {
+            const res = await fetch(`${API_BASE}/masters/dha/import`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ items: importDhaParsedData.value, mode })
@@ -4107,7 +4107,7 @@ createApp({
             if (res.ok && data.success) {
               apiSuccess = true;
               // Sync fresh data from server
-              const mRes = await fetch('/api/masters');
+              const mRes = await fetch(`${API_BASE}/masters`);
               if (mRes.ok) {
                 const mData = await mRes.json();
                 if (mData.data && mData.data.dhaList && mData.data.dhaList.length > 0) {
