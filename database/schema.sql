@@ -267,5 +267,21 @@ INSERT INTO `app_users` (`username`, `nama_lengkap`, `nip`, `email`, `satker`, `
 ('sri.wahyuni', 'Dra. Sri Wahyuni, M.Si.', '19750820 199903 2 001', 'sri.wahyuni@bi.go.id', 'Seksi Kepatuhan & Manajemen Risiko', 'auditor', 'Aktif')
 ON DUPLICATE KEY UPDATE `nama_lengkap` = VALUES(`nama_lengkap`);
 
+-- Master Jenis / Tipe Pembayaran
+DROP TABLE IF EXISTS `jenis_pembayaran`;
+CREATE TABLE `jenis_pembayaran` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `jenis` VARCHAR(50) NOT NULL UNIQUE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `jenis_pembayaran` (`id`, `jenis`) VALUES
+(1, 'Tunai'),
+(2, 'BIFast'),
+(3, 'SKN'),
+(4, 'RTGS'),
+(5, 'SWIFT')
+ON DUPLICATE KEY UPDATE `jenis` = VALUES(`jenis`);
+
+
 
 

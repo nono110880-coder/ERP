@@ -1505,9 +1505,13 @@
                     </div>
                     <select class="filter-select" style="height:38px;border:1px solid #dbe2ed;border-radius:7px;padding:0 10px;color:#50617c;width:auto;" v-model="historyStatusFilter">
                       <option value="all">Semua status</option>
+                      <option value="Disetujui">Disetujui</option>
+                      <option value="Diajukan">Diajukan</option>
+                      <option value="Cair">Cair</option>
                       <option value="Menunggu proses">Menunggu proses</option>
                       <option value="Selesai">Selesai</option>
                       <option value="Draft">Draft</option>
+                      <option value="Ditolak">Ditolak</option>
                     </select>
                   </div>
                 </div>
@@ -1534,7 +1538,7 @@
                           {{ formatRupiah(b.nominal !== undefined ? b.nominal : (b.nominalTotal !== undefined ? b.nominalTotal : calcBatchTotal(b))) }}
                         </td>
                         <td>
-                          <span class="status" :class="b.status === 'Selesai' ? 'status-done' : (b.status === 'Draft' ? 'status-draft' : 'status-review')">
+                          <span class="status" :class="getHistoryStatusClass(b.status)">
                             {{ b.status || 'Menunggu proses' }}
                           </span>
                         </td>
@@ -2365,8 +2369,14 @@
                   <p class="text-muted small mb-0">Master database penyedia barang/jasa, rekanan kontrak, dan wajib
                     pajak mitra Bank Indonesia</p>
                 </div>
-                <div class="d-flex align-items-center gap-2">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
                   <span class="badge-tag tag-navy">{{ filteredRekananList.length }} Rekanan</span>
+                  <button class="btn-erp btn-erp-teal" @click="exportRekananToExcel" title="Ekspor seluruh database Master Rekanan & Vendor ke file Excel (.xlsx)">
+                    <i class="bi bi-file-earmark-excel"></i> Ekspor Excel
+                  </button>
+                  <button class="btn-erp btn-erp-secondary" @click="openImportRekananModal" title="Impor data Master Rekanan & Vendor dari file Excel (.xlsx / .csv)">
+                    <i class="bi bi-file-earmark-arrow-up"></i> Impor Excel
+                  </button>
                   <button class="btn-erp btn-erp-primary" @click="openRekananModal" title="Tambah Data Rekanan Baru">
                     <i class="bi bi-plus-circle-fill"></i> Tambah Rekanan
                   </button>
@@ -3685,7 +3695,7 @@
                         style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: var(--accent-emerald);">
                         {{ formatCurrency(calcBatchTotal(item)) }}
                       </td>
-                      <td><span class="badge-tag tag-emerald">● {{ item.status }}</span></td>
+                      <td><span class="badge-tag" :class="getBatchStatusBadgeClass(item.status)">● {{ item.status }}</span></td>
                       <td style="text-align: center;">
                         <button class="btn btn-sm btn-outline-primary py-0 px-2" @click.stop="loadBatchToForm(item)">
                           Pilih & Edit
@@ -4845,6 +4855,140 @@
             <button type="button" class="btn-erp btn-erp-secondary" @click="showRekananModal = false">Batal</button>
             <button type="button" class="btn-erp btn-erp-primary" @click="saveRekanan">
               <i class="bi bi-check-lg me-1"></i> {{ rekananFormMode === 'add' ? 'Simpan Data Rekanan' : 'Simpan Perubahan' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= MODAL: IMPORT EXCEL DATA MASTER REKANAN ================= -->
+      <div class="modal-overlay" v-if="showImportRekananModal" @click.self="closeImportRekananModal">
+        <div class="modal-dialog-custom modal-dialog-visible" style="max-width: 860px;">
+          <div class="modal-header-custom text-success">
+            <span class="d-flex align-items-center gap-2">
+              <i class="bi bi-file-earmark-excel-fill fs-5 text-success"></i>
+              <strong class="fs-6">Impor Data Master Rekanan & Vendor dari Excel</strong>
+            </span>
+            <button class="btn btn-sm btn-link text-secondary" @click="closeImportRekananModal">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+          <div class="modal-body-custom">
+            <!-- Banner Petunjuk & Download Template -->
+            <div class="alert alert-info py-2 px-3 mb-3 d-flex flex-wrap align-items-center justify-content-between gap-2 border-0 bg-info-subtle">
+              <div class="small">
+                <i class="bi bi-info-circle-fill me-1 text-info"></i>
+                Gunakan file format <strong>.xlsx</strong>, <strong>.xls</strong>, atau <strong>.csv</strong> sesuai susunan kolom master Rekanan & Vendor.
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-primary bg-white shadow-sm" @click="downloadRekananTemplate">
+                <i class="bi bi-download me-1"></i> Unduh Template Excel
+              </button>
+            </div>
+
+            <!-- Pilihan Mode Impor -->
+            <div class="mb-3 p-3 border rounded bg-light">
+              <label class="form-label fw-semibold small mb-2 text-dark">
+                <i class="bi bi-gear me-1"></i> Mode Impor Data:
+              </label>
+              <div class="d-flex flex-wrap gap-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="rekananImportMode" id="rekananModeUpsert" value="upsert" v-model="importRekananMode">
+                  <label class="form-check-label small" for="rekananModeUpsert">
+                    <strong>Sinkronisasi / Perbarui (Upsert) - Disarankan</strong>
+                    <span class="text-muted d-block" style="font-size: 0.75rem;">Update jika data rekanan/NPWP sudah ada, dan tambahkan baris baru</span>
+                  </label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="rekananImportMode" id="rekananModeAppend" value="append" v-model="importRekananMode">
+                  <label class="form-check-label small" for="rekananModeAppend">
+                    <strong>Tambah / Gabung (Append)</strong>
+                    <span class="text-muted d-block" style="font-size: 0.75rem;">Tambahkan baris baru ke master rekanan yang sudah ada</span>
+                  </label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="rekananImportMode" id="rekananModeReplace" value="replace" v-model="importRekananMode">
+                  <label class="form-check-label small" for="rekananModeReplace">
+                    <strong class="text-danger">Ganti Seluruh Data (Replace All)</strong>
+                    <span class="text-muted d-block" style="font-size: 0.75rem;">Kosongkan master rekanan lama dan gantikan dengan file ini</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- File Upload Dropzone -->
+            <div class="upload-dropzone p-4 text-center border border-2 border-dashed rounded mb-3 bg-white"
+              style="border-color: #cbd5e1 !important; cursor: pointer;"
+              @click="triggerRekananFileInput"
+              @dragover.prevent
+              @drop.prevent="handleRekananFileDrop">
+              <input type="file" ref="rekananFileInput" class="d-none" accept=".xlsx, .xls, .csv" @change="handleRekananFileChange">
+              <i class="bi bi-cloud-arrow-up text-success fs-1 mb-2 d-block"></i>
+              <div class="fw-semibold text-dark">
+                {{ importRekananFileName ? importRekananFileName : 'Pilih atau Tarik File Excel Rekanan ke Sini' }}
+              </div>
+              <div class="text-muted small">
+                Mendukung file .xlsx, .xls, atau .csv (maksimal 10 MB)
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @click.stop="triggerRekananFileInput">
+                <i class="bi bi-folder2-open me-1"></i> Telusuri File
+              </button>
+            </div>
+
+            <!-- Error Alert jika format file bermasalah -->
+            <div class="alert alert-danger py-2 px-3 small mb-3" v-if="importRekananError">
+              <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ importRekananError }}
+            </div>
+
+            <!-- Preview Data Terdeteksi -->
+            <div v-if="importRekananParsedData.length > 0">
+              <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="fw-semibold small text-dark">
+                  <i class="bi bi-table me-1"></i> Pratinjau Data Terdeteksi (5 Baris Pertama):
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="badge-tag tag-navy">{{ importRekananParsedData.length }} Rekanan Terbaca</span>
+                </div>
+              </div>
+              <div class="table-responsive border rounded" style="max-height: 220px;">
+                <table class="table table-sm table-striped table-hover mb-0" style="font-size: 0.78rem;">
+                  <thead class="table-light sticky-top">
+                    <tr>
+                      <th style="width: 40px;">No</th>
+                      <th>Nama Rekanan</th>
+                      <th>Alamat</th>
+                      <th>NIK / NPWP</th>
+                      <th>Nama NPWP</th>
+                      <th>Bank</th>
+                      <th>No Rekening</th>
+                      <th>Atas Nama</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, idx) in importRekananPreviewRows" :key="idx">
+                      <td>{{ idx + 1 }}</td>
+                      <td class="fw-semibold text-truncate" style="max-width: 180px;">{{ item.nama }}</td>
+                      <td class="text-truncate text-muted" style="max-width: 160px;">{{ item.alamat || '-' }}</td>
+                      <td class="font-monospace"><span class="badge-tag tag-navy">{{ item.nikNpwp || '-' }}</span></td>
+                      <td class="text-truncate" style="max-width: 150px;">{{ item.namaWp || item.nama }}</td>
+                      <td>{{ item.bank || '-' }}</td>
+                      <td class="font-monospace">{{ item.rekening || '-' }}</td>
+                      <td class="text-truncate" style="max-width: 150px;">{{ item.atasNama || item.nama }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="text-muted small mt-1 text-end fst-italic" v-if="importRekananParsedData.length > 5">
+                * Dan {{ importRekananParsedData.length - 5 }} baris data rekanan lainnya yang akan diimpor.
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer-custom">
+            <button type="button" class="btn-erp btn-erp-secondary" @click="closeImportRekananModal" :disabled="isImportingRekanan">
+              Batal
+            </button>
+            <button type="button" class="btn-erp btn-erp-teal" @click="processImportRekanan" :disabled="importRekananParsedData.length === 0 || isImportingRekanan">
+              <span v-if="isImportingRekanan" class="spinner-border spinner-border-sm me-1" role="status"></span>
+              <i v-else class="bi bi-check-circle-fill me-1"></i>
+              {{ isImportingRekanan ? 'Mengimpor Data...' : `Mulai Impor (${importRekananParsedData.length} Rekanan)` }}
             </button>
           </div>
         </div>

@@ -2138,13 +2138,19 @@ label,
 }
 
 .batch-proto-view .status-review {
-  background: var(--amberbg);
-  color: var(--amber);
+  background: var(--amberbg, #fff4dc);
+  color: var(--amber, #a96912);
 }
 
 .batch-proto-view .status-done {
-  background: var(--greenbg);
+  background: var(--greenbg, #e6f7f1);
   color: #168060;
+}
+
+.batch-proto-view .status-danger,
+.batch-proto-view .status-rejected {
+  background: #fde8e8;
+  color: var(--red, #b93838);
 }
 
 .batch-proto-view .tool-row {

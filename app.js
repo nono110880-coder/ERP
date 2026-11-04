@@ -1843,37 +1843,123 @@ createApp({
       showToast('Data invoice dibersihkan.', 'info');
     }
 
-    function resetFormBatchDirect() {
-      if (!hasPermission('form_create')) {
-        showToast('Akses Dibatasi: Peran Anda tidak memiliki hak akses membuat batch baru.', 'warning');
-        return;
+    function generateNextBatchNo() {
+      const currentYear = new Date().getFullYear().toString().slice(-2);
+      const prefix = `BT${currentYear}-`;
+      let maxNum = 0;
+      if (Array.isArray(batchList.value)) {
+        for (const b of batchList.value) {
+          const bNo = b.noBatch || b.batch || '';
+          if (bNo.startsWith(prefix)) {
+            const num = parseInt(bNo.replace(prefix, ''), 10);
+            if (!isNaN(num) && num > maxNum) {
+              maxNum = num;
+            }
+          }
+        }
       }
-      confirmClear();
-      const nextNum = batchList.value.length + 1;
-      form.noBatch = `BT26-${String(nextNum).padStart(4, '0')}`;
-      form.maker = currentUser.name || 'Admin Finance';
+      const next = maxNum + 1;
+      return `${prefix}${String(next).padStart(4, '0')}`;
+    }
+
+    function clearFormBatch() {
+      form.id = null;
+      form.noBatch = generateNextBatchNo();
+      form.noDokumen = '';
       form.tglTransaksi = new Date().toISOString().slice(0, 10);
+      form.maker = currentUser.name || 'Admin Finance';
       form.ldapDate = new Date().toISOString().slice(0, 10);
       form.processDate = new Date().toISOString().slice(0, 10);
+      form.dariUker = '';
+      form.kepadaUker = '';
+      form.tipePembayaran = '';
+      form.batchName = '';
+      form.perihal = '';
+
+      // 4 Slot Invoices
+      form.invoices = [
+        { noInvoice: '', tglInvoice: form.tglTransaksi, nominal: 0 },
+        { noInvoice: '', tglInvoice: '', nominal: 0 },
+        { noInvoice: '', tglInvoice: '', nominal: 0 },
+        { noInvoice: '', tglInvoice: '', nominal: 0 }
+      ];
+      form.noFakturPajak = '';
+      form.tglFakturPajak = '';
+
+      // Data Rekanan & Rekening
       form.namaRekanan = '';
+      form.alamatRekanan = '';
+      form.nikNpwp = '';
+      form.namaWpRekanan = '';
       form.newPartner = '';
-      partnerSearchText.value = '';
-      isPartnerDropdownOpen.value = false;
-      form.yangMengajukan = '';
-      form.pangkatMengajukan = '';
-      form.yangMenyetujui = '';
-      form.pangkatMenyetujui = '';
-      pengajuSearchText.value = '';
-      penyetujuSearchText.value = '';
-      isPengajuDropdownOpen.value = false;
-      isPenyetujuDropdownOpen.value = false;
-      confirmCheck.value = false;
+      form.namaBank = '';
+      form.namaRekening = '';
+      form.nomorRekening = '';
+
+      // Beban Anggaran, DHA & COA
+      form.bebanAnggaranUker = '';
+      form.jenisInvoice = '';
+      form.namaDha = '';
+      form.dhaBalance = 0;
       form.coas = [
         { rangkaianCoa: '', naturalAkun: '', nominal: 0 },
         { rangkaianCoa: '', naturalAkun: '', nominal: 0 },
         { rangkaianCoa: '', naturalAkun: '', nominal: 0 }
       ];
+
+      // Dokumen & Approval
+      form.paidDate = '';
+      form.pbtPrintDate = '';
+      form.pbtSubmitDate = '';
+      form.yangMengajukan = '';
+      form.pangkatMengajukan = '';
+      form.yangMenyetujui = '';
+      form.pangkatMenyetujui = '';
+      form.noPerintahBayar = '';
+      form.penarikanUangMuka = 0;
+      form.deskripsiHasilAkhir = '';
+      form.pembebananSatker = 'KPwDN Jember';
+      form.status = 'Draft';
+
+      // State UI, Search Text, dan Validasi
+      confirmCheck.value = false;
+      selectedBatchId.value = null;
+      docDuplicateWarning.value = '';
+
+      partnerSearchText.value = '';
+      isPartnerDropdownOpen.value = false;
+      activePartnerIndex.value = -1;
+
+      pengajuSearchText.value = '';
+      penyetujuSearchText.value = '';
+      isPengajuDropdownOpen.value = false;
+      isPenyetujuDropdownOpen.value = false;
+      activePengajuIndex.value = -1;
+      activePenyetujuIndex.value = -1;
+
+      isDhaDropdownOpen.value = false;
+      dhaFilterText.value = '';
+      if (Array.isArray(isCoaDropdownOpen)) {
+        isCoaDropdownOpen[0] = false;
+        isCoaDropdownOpen[1] = false;
+        isCoaDropdownOpen[2] = false;
+      }
+      if (Array.isArray(coaFilterText)) {
+        coaFilterText[0] = '';
+        coaFilterText[1] = '';
+        coaFilterText[2] = '';
+      }
+
+      // Kembali ke Langkah 1
       currentStep.value = 1;
+    }
+
+    function resetFormBatchDirect() {
+      if (!hasPermission('form_create')) {
+        showToast('Akses Dibatasi: Peran Anda tidak memiliki hak akses membuat batch baru.', 'warning');
+        return;
+      }
+      clearFormBatch();
     }
 
     async function resetFormBatch() {
@@ -1887,8 +1973,8 @@ createApp({
         cancelButtonColor: '#64748b'
       });
       if (!confirmed) return;
-      resetFormBatchDirect();
-      showToast('Form telah direset.', 'info');
+      clearFormBatch();
+      showToast('Form telah direset dan seluruh field dikosongkan.', 'info');
     }
 
     async function saveDraftBatch() {
@@ -2008,6 +2094,7 @@ createApp({
 
       isSubmitting.value = true;
       try {
+        const savedBatchNo = form.noBatch || 'Batch';
         if (isOnline.value) {
           const payload = JSON.parse(JSON.stringify(form));
           payload.namaRekanan = form.namaRekanan;
@@ -2030,21 +2117,23 @@ createApp({
               body: JSON.stringify(payload)
             });
             data = await res.json();
-            if (data.data && data.data.id) form.id = data.data.id;
-            if (data.data && data.data.noBatch) form.noBatch = data.data.noBatch;
           }
           if (!res.ok) throw new Error(data.message || 'Gagal menyimpan batch ke database');
 
+          const finalBatchNo = (data && data.data && data.data.noBatch) || savedBatchNo;
           await checkOnlineStatus();
-          showToast('Data berhasil disimpan.', 'success');
-          invoiceApSubView.value = 'history';
+
+          // Bersihkan seluruh data isian formulir setelah klik simpan batch
+          clearFormBatch();
+
+          showToast(`Batch ${finalBatchNo} berhasil disimpan! Seluruh data input telah dibersihkan.`, 'success');
+          invoiceApSubView.value = 'form';
         } else {
           // Fallback offline
-          if (!form.noBatch) {
-            form.noBatch = `BT26-${String(batchList.value.length + 1).padStart(4, '0')}`;
-          }
-          const idx = batchList.value.findIndex(b => (b.noBatch || b.batch) === form.noBatch);
+          const fallbackNo = form.noBatch || generateNextBatchNo();
+          const idx = batchList.value.findIndex(b => (b.noBatch || b.batch) === fallbackNo);
           const data = JSON.parse(JSON.stringify(form));
+          data.noBatch = fallbackNo;
           data.nominalTotal = totInv;
           data.nominal = totInv;
           data.partner = data.namaRekanan;
@@ -2056,8 +2145,13 @@ createApp({
             data.id = batchList.value.length ? Math.max(...batchList.value.map(x => x.id || 0)) + 1 : 1;
             batchList.value.unshift(data);
           }
-          showToast(`Batch ${data.noBatch} berhasil disimpan (Penyimpanan lokal - Server offline).`, 'warning');
-          invoiceApSubView.value = 'history';
+          localStorage.setItem('bi_erp_batches', JSON.stringify(batchList.value));
+
+          // Bersihkan seluruh data isian formulir setelah klik simpan batch
+          clearFormBatch();
+
+          showToast(`Batch ${data.noBatch} berhasil disimpan (Offline). Seluruh data input telah dibersihkan.`, 'warning');
+          invoiceApSubView.value = 'form';
         }
       } catch (err) {
         showToast(err.message || 'Gagal menyimpan batch ke database server', 'error');
@@ -2104,10 +2198,10 @@ createApp({
 
     const filteredHistoryBatches = computed(() => {
       const q = (historySearch.value || '').trim().toLowerCase();
-      const st = historyStatusFilter.value;
+      const st = (historyStatusFilter.value || '').trim().toLowerCase();
       return batchList.value.filter(b => {
-        const batchStatus = b.status || 'Menunggu proses';
-        const matchStatus = st === 'all' || batchStatus === st;
+        const batchStatus = (b.status || 'Menunggu proses').trim().toLowerCase();
+        const matchStatus = st === 'all' || !st || batchStatus === st;
         if (!matchStatus) return false;
         if (!q) return true;
         const bNo = (b.noBatch || b.batch || '').toLowerCase();
@@ -2149,6 +2243,7 @@ createApp({
                 if (mJson.data.pegawaiList && mJson.data.pegawaiList.length > 0) pegawaiList.value = mJson.data.pegawaiList;
                 if (mJson.data.bankList && mJson.data.bankList.length > 0) bankList.value = mJson.data.bankList;
                 if (mJson.data.masterBankList && mJson.data.masterBankList.length > 0) masterBankList.value = mJson.data.masterBankList;
+                if (mJson.data.tipePembayaranList && mJson.data.tipePembayaranList.length > 0) tipePembayaranList.value = [...new Set(mJson.data.tipePembayaranList)];
                 if (mJson.data.unitKerjaList && mJson.data.unitKerjaList.length > 0) {
                   masterUnitKerjaList.value = mJson.data.unitKerjaList.map(u => ({
                     id: u.id,
@@ -2606,6 +2701,20 @@ createApp({
         return 'tag-rose';
       }
       return 'tag-amber';
+    }
+
+    function getHistoryStatusClass(status) {
+      const s = String(status || '').toLowerCase().trim();
+      if (['disetujui', 'approved', 'selesai', 'cair', 'terverifikasi', 'lunas'].includes(s)) {
+        return 'status-done';
+      }
+      if (['ditolak', 'rejected', 'batal'].includes(s)) {
+        return 'status-danger';
+      }
+      if (s === 'draft') {
+        return 'status-draft';
+      }
+      return 'status-review';
     }
 
     function getDetailInvoices(b) {
@@ -3479,6 +3588,498 @@ createApp({
       if (!confirmed) return;
       rekananPresets.value = rekananPresets.value.filter(r => r.id !== id);
       showToast(`Data rekanan ${name} berhasil dihapus.`, 'info');
+    }
+
+    // ================= MASTER REKANAN: EXPORT & IMPORT =================
+    const showImportRekananModal = ref(false);
+    const importRekananFile = ref(null);
+    const importRekananFileName = ref('');
+    const importRekananParsedData = ref([]);
+    const importRekananMode = ref('upsert');
+    const isImportingRekanan = ref(false);
+    const importRekananError = ref('');
+    const rekananFileInput = ref(null);
+
+    const importRekananPreviewRows = computed(() => {
+      return importRekananParsedData.value.slice(0, 5);
+    });
+
+    async function exportRekananToExcel() {
+      try {
+        if (!rekananPresets.value || rekananPresets.value.length === 0) {
+          showToast('Tidak ada data Master Rekanan untuk diekspor!', 'warning');
+          return;
+        }
+
+        const XLSX = await getExcelLib().catch(() => null);
+
+        const rows = rekananPresets.value.map((r, index) => ({
+          'No': index + 1,
+          'Nama Rekanan': r.nama || '',
+          'Alamat': r.alamat || '',
+          'NIK / NPWP': r.nikNpwp || '',
+          'Nama NPWP': r.namaWp || r.nama || '',
+          'Bank': r.bank || '',
+          'Nomor Rekening': r.rekening || '',
+          'Atas Nama Rekening': r.atasNama || r.nama || ''
+        }));
+
+        const nowStr = new Date().toISOString().split('T')[0];
+
+        if (XLSX) {
+          const ws = XLSX.utils.json_to_sheet(rows);
+          ws['!cols'] = [
+            { wch: 6 },
+            { wch: 35 },
+            { wch: 45 },
+            { wch: 25 },
+            { wch: 35 },
+            { wch: 25 },
+            { wch: 25 },
+            { wch: 35 }
+          ];
+
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Data Master Rekanan');
+          XLSX.writeFile(wb, `Data_Master_Rekanan_${nowStr}.xlsx`);
+          showToast(`Berhasil mengekspor ${rows.length} data Master Rekanan ke file Excel (.xlsx)!`, 'success');
+        } else {
+          const headers = ['No', 'Nama Rekanan', 'Alamat', 'NIK / NPWP', 'Nama NPWP', 'Bank', 'Nomor Rekening', 'Atas Nama Rekening'];
+          const csvLines = rows.map(r => [
+            r['No'],
+            `"${(r['Nama Rekanan'] || '').replace(/"/g, '""')}"`,
+            `"${(r['Alamat'] || '').replace(/"/g, '""')}"`,
+            `"${(r['NIK / NPWP'] || '').replace(/"/g, '""')}"`,
+            `"${(r['Nama NPWP'] || '').replace(/"/g, '""')}"`,
+            `"${(r['Bank'] || '').replace(/"/g, '""')}"`,
+            `"${(r['Nomor Rekening'] || '').replace(/"/g, '""')}"`,
+            `"${(r['Atas Nama Rekening'] || '').replace(/"/g, '""')}"`
+          ].join(';'));
+
+          const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(';'), ...csvLines].join('\n');
+          const encodedUri = encodeURI(csvContent);
+          const link = document.createElement('a');
+          link.setAttribute('href', encodedUri);
+          link.setAttribute('download', `Data_Master_Rekanan_${nowStr}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          showToast(`Berhasil mengekspor ${rows.length} data Master Rekanan ke file CSV!`, 'success');
+        }
+      } catch (err) {
+        console.error('Export Rekanan error:', err);
+        showToast('Gagal mengekspor data rekanan: ' + err.message, 'danger');
+      }
+    }
+
+    function detectRekananColumns(headers) {
+      let namaIdx = -1;
+      let alamatIdx = -1;
+      let npwpIdx = -1;
+      let namaWpIdx = -1;
+      let bankIdx = -1;
+      let rekeningIdx = -1;
+      let atasNamaIdx = -1;
+
+      const cleans = headers.map(h => String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+      // 1. Identify Rekening column
+      rekeningIdx = cleans.findIndex(c => 
+        (c === 'rekening' || c === 'nomorrekening' || c === 'norek' || c === 'norekening' || c === 'no_rekening' || c === 'rekeningtujuan' || c === 'rekeningdefault') &&
+        !c.includes('nama')
+      );
+
+      // 2. Identify Bank column
+      bankIdx = cleans.findIndex((c, i) => {
+        if (i === rekeningIdx) return false;
+        return c === 'bank' || c === 'namabank' || c === 'banktujuan' || c === 'bankdefault' || (c.includes('bank') && !c.includes('rekening') && !c.includes('nama'));
+      });
+
+      // 3. Identify NIK / NPWP column
+      npwpIdx = cleans.findIndex((c, i) => {
+        if (i === rekeningIdx || i === bankIdx) return false;
+        return (c === 'niknpwp' || c === 'npwp' || c === 'nik' || c === 'nonpwp' || c === 'nonik' || c === 'nomornpwp' || c === 'nomornik') && !c.includes('nama');
+      });
+
+      // 4. Identify Atas Nama column
+      atasNamaIdx = cleans.findIndex((c, i) => {
+        if (i === rekeningIdx || i === bankIdx || i === npwpIdx) return false;
+        return c === 'atasnama' || c === 'namaatasnama' || c === 'pemilikrekening' || c === 'anrekening' || c === 'an' || c.includes('atasnama');
+      });
+
+      // 5. Identify Nama WP column
+      namaWpIdx = cleans.findIndex((c, i) => {
+        if (i === rekeningIdx || i === bankIdx || i === npwpIdx || i === atasNamaIdx) return false;
+        return c === 'namawp' || c === 'namanpwp' || c === 'namawajibpajak' || c === 'wajibpajak' || (c.includes('nama') && c.includes('wp')) || (c.includes('nama') && c.includes('pajak'));
+      });
+
+      // 6. Identify Alamat column
+      alamatIdx = cleans.findIndex((c, i) => {
+        if (i === rekeningIdx || i === bankIdx || i === npwpIdx || i === atasNamaIdx || i === namaWpIdx) return false;
+        return c.includes('alamat') || c.includes('domisili');
+      });
+
+      // 7. Identify Nama Rekanan column
+      namaIdx = cleans.findIndex((c, i) => {
+        if (i === rekeningIdx || i === bankIdx || i === npwpIdx || i === atasNamaIdx || i === namaWpIdx || i === alamatIdx) return false;
+        return c === 'namarekanan' || c === 'rekanan' || c === 'vendor' || c === 'namavendor' || c === 'namaperusahaan' || c === 'perusahaan' || c === 'nama' || c.includes('rekanan') || c.includes('vendor');
+      });
+
+      return { namaIdx, alamatIdx, npwpIdx, namaWpIdx, bankIdx, rekeningIdx, atasNamaIdx };
+    }
+
+    async function downloadRekananTemplate() {
+      try {
+        const XLSX = await getExcelLib().catch(() => null);
+        const templateData = [
+          {
+            'No': 1,
+            'Nama Rekanan': 'PT Indotech Pratama Solusindo',
+            'Alamat': 'Jl. PB Sudirman No. 70, Jember',
+            'NIK / NPWP': '05.678.901.2-654.000',
+            'Nama NPWP': 'PT Indotech Pratama Solusindo',
+            'Bank': 'Bank Mandiri',
+            'Nomor Rekening': '1430098765432',
+            'Atas Nama Rekening': 'PT Indotech Pratama Solusindo'
+          },
+          {
+            'No': 2,
+            'Nama Rekanan': 'CV Pandawa Cipta Karya',
+            'Alamat': 'Jl. Trunojoyo No. 15, Jember',
+            'NIK / NPWP': '04.567.890.1-654.000',
+            'Nama NPWP': 'CV Pandawa Cipta Karya',
+            'Bank': 'Bank Negara Indonesia (BNI)',
+            'Nomor Rekening': '0987654321',
+            'Atas Nama Rekening': 'CV Pandawa Cipta Karya'
+          },
+          {
+            'No': 3,
+            'Nama Rekanan': 'PT Kencana Perkasa Abadi',
+            'Alamat': 'Jl. Kalimantan No. 88, Jember',
+            'NIK / NPWP': '03.456.789.0-654.000',
+            'Nama NPWP': 'PT Kencana Perkasa Abadi',
+            'Bank': 'Bank Rakyat Indonesia (BRI)',
+            'Nomor Rekening': '320101987654321',
+            'Atas Nama Rekening': 'PT Kencana Perkasa Abadi'
+          }
+        ];
+
+        if (XLSX) {
+          const ws = XLSX.utils.json_to_sheet(templateData);
+          ws['!cols'] = [
+            { wch: 6 },
+            { wch: 35 },
+            { wch: 45 },
+            { wch: 25 },
+            { wch: 35 },
+            { wch: 25 },
+            { wch: 25 },
+            { wch: 35 }
+          ];
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Template Master Rekanan');
+          XLSX.writeFile(wb, 'Template_Import_Master_Rekanan.xlsx');
+          showToast('Template Excel Master Rekanan berhasil diunduh!', 'success');
+        } else {
+          const headers = ['No', 'Nama Rekanan', 'Alamat', 'NIK / NPWP', 'Nama NPWP', 'Bank', 'Nomor Rekening', 'Atas Nama Rekening'];
+          const csvLines = templateData.map(r => [
+            r['No'],
+            `"${r['Nama Rekanan']}"`,
+            `"${r['Alamat']}"`,
+            `"${r['NIK / NPWP']}"`,
+            `"${r['Nama NPWP']}"`,
+            `"${r['Bank']}"`,
+            `"${r['Nomor Rekening']}"`,
+            `"${r['Atas Nama Rekening']}"`
+          ].join(';'));
+          const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(';'), ...csvLines].join('\n');
+          const encodedUri = encodeURI(csvContent);
+          const link = document.createElement('a');
+          link.setAttribute('href', encodedUri);
+          link.setAttribute('download', 'Template_Import_Master_Rekanan.csv');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          showToast('Template CSV Master Rekanan berhasil diunduh!', 'success');
+        }
+      } catch (err) {
+        showToast('Gagal mengunduh template: ' + err.message, 'danger');
+      }
+    }
+
+    function openImportRekananModal() {
+      if (typeof hasPermission === 'function' && !hasPermission('manage_masters')) {
+        showToast('Akses Dibatasi: Peran Anda tidak memiliki hak akses untuk mengelola data master rekanan.', 'warning');
+        return;
+      }
+      showImportRekananModal.value = true;
+      importRekananFile.value = null;
+      importRekananFileName.value = '';
+      importRekananParsedData.value = [];
+      importRekananError.value = '';
+      isImportingRekanan.value = false;
+    }
+
+    function closeImportRekananModal() {
+      showImportRekananModal.value = false;
+      importRekananParsedData.value = [];
+      importRekananFile.value = null;
+      importRekananFileName.value = '';
+      importRekananError.value = '';
+    }
+
+    function triggerRekananFileInput() {
+      if (rekananFileInput.value) rekananFileInput.value.click();
+    }
+
+    function handleRekananFileChange(e) {
+      const file = e.target.files && e.target.files[0];
+      if (file) parseRekananFile(file);
+      e.target.value = '';
+    }
+
+    function handleRekananFileDrop(e) {
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) parseRekananFile(file);
+    }
+
+    async function parseRekananFile(file) {
+      importRekananFile.value = file;
+      importRekananFileName.value = file.name;
+      importRekananError.value = '';
+      importRekananParsedData.value = [];
+
+      try {
+        const XLSX = await getExcelLib();
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+
+            const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+            if (!rawRows || rawRows.length === 0) {
+              importRekananError.value = 'File Excel kosong atau tidak memiliki baris data.';
+              return;
+            }
+
+            let headerRowIndex = -1;
+            let colMap = { namaIdx: -1, alamatIdx: -1, npwpIdx: -1, namaWpIdx: -1, bankIdx: -1, rekeningIdx: -1, atasNamaIdx: -1 };
+
+            for (let r = 0; r < Math.min(rawRows.length, 15); r++) {
+              const row = rawRows[r];
+              if (!Array.isArray(row) || row.length === 0) continue;
+              const det = detectRekananColumns(row);
+              let score = 0;
+              if (det.namaIdx !== -1) score++;
+              if (det.alamatIdx !== -1) score++;
+              if (det.npwpIdx !== -1) score++;
+              if (det.namaWpIdx !== -1) score++;
+              if (det.bankIdx !== -1) score++;
+              if (det.rekeningIdx !== -1) score++;
+              if (det.atasNamaIdx !== -1) score++;
+
+              if (score >= 2) {
+                headerRowIndex = r;
+                colMap = det;
+                break;
+              }
+            }
+
+            const parsed = [];
+
+            if (headerRowIndex !== -1) {
+              for (let i = headerRowIndex + 1; i < rawRows.length; i++) {
+                const row = rawRows[i];
+                if (!row || !Array.isArray(row)) continue;
+
+                const rawNama = colMap.namaIdx !== -1 ? row[colMap.namaIdx] : '';
+                const rawAlamat = colMap.alamatIdx !== -1 ? row[colMap.alamatIdx] : '';
+                const rawNpwp = colMap.npwpIdx !== -1 ? row[colMap.npwpIdx] : '';
+                const rawNamaWp = colMap.namaWpIdx !== -1 ? row[colMap.namaWpIdx] : '';
+                const rawBank = colMap.bankIdx !== -1 ? row[colMap.bankIdx] : '';
+                const rawRekening = colMap.rekeningIdx !== -1 ? row[colMap.rekeningIdx] : '';
+                const rawAtasNama = colMap.atasNamaIdx !== -1 ? row[colMap.atasNamaIdx] : '';
+
+                const nama = String(rawNama || '').trim();
+                const alamat = String(rawAlamat || '').trim();
+                const nikNpwp = String(rawNpwp || '').trim();
+                const namaWp = String(rawNamaWp || '').trim() || nama;
+                const bank = String(rawBank || '').trim();
+                const rekening = String(rawRekening || '').trim();
+                const atasNama = String(rawAtasNama || '').trim() || nama;
+
+                if (nama) {
+                  parsed.push({
+                    nama,
+                    alamat,
+                    nikNpwp: nikNpwp || '-',
+                    namaWp,
+                    bank,
+                    rekening,
+                    atasNama
+                  });
+                }
+              }
+            } else {
+              const jsonRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+              if (jsonRows && jsonRows.length > 0) {
+                const keys = Object.keys(jsonRows[0]);
+                const det = detectRekananColumns(keys);
+
+                for (const row of jsonRows) {
+                  const rawNama = det.namaIdx !== -1 ? row[keys[det.namaIdx]] : '';
+                  const rawAlamat = det.alamatIdx !== -1 ? row[keys[det.alamatIdx]] : '';
+                  const rawNpwp = det.npwpIdx !== -1 ? row[keys[det.npwpIdx]] : '';
+                  const rawNamaWp = det.namaWpIdx !== -1 ? row[keys[det.namaWpIdx]] : '';
+                  const rawBank = det.bankIdx !== -1 ? row[keys[det.bankIdx]] : '';
+                  const rawRekening = det.rekeningIdx !== -1 ? row[keys[det.rekeningIdx]] : '';
+                  const rawAtasNama = det.atasNamaIdx !== -1 ? row[keys[det.atasNamaIdx]] : '';
+
+                  const nama = String(rawNama || '').trim();
+                  const alamat = String(rawAlamat || '').trim();
+                  const nikNpwp = String(rawNpwp || '').trim();
+                  const namaWp = String(rawNamaWp || '').trim() || nama;
+                  const bank = String(rawBank || '').trim();
+                  const rekening = String(rawRekening || '').trim();
+                  const atasNama = String(rawAtasNama || '').trim() || nama;
+
+                  if (nama) {
+                    parsed.push({
+                      nama,
+                      alamat,
+                      nikNpwp: nikNpwp || '-',
+                      namaWp,
+                      bank,
+                      rekening,
+                      atasNama
+                    });
+                  }
+                }
+              }
+            }
+
+            if (parsed.length === 0) {
+              importRekananError.value = 'Tidak ada baris data Nama Rekanan yang valid ditemukan di file ini.';
+              return;
+            }
+
+            importRekananParsedData.value = parsed;
+          } catch (err) {
+            importRekananError.value = 'Gagal membaca format isi file: ' + err.message;
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } catch (err) {
+        importRekananError.value = 'Gagal memproses file: ' + err.message;
+      }
+    }
+
+    async function processImportRekanan() {
+      if (typeof hasPermission === 'function' && !hasPermission('manage_masters')) {
+        showToast('Akses Dibatasi: Anda tidak memiliki izin untuk mengimpor master rekanan.', 'warning');
+        return;
+      }
+
+      if (importRekananParsedData.value.length === 0) {
+        showToast('Tidak ada data yang dapat diimpor!', 'warning');
+        return;
+      }
+
+      isImportingRekanan.value = true;
+      const count = importRekananParsedData.value.length;
+      const mode = importRekananMode.value;
+
+      try {
+        let apiSuccess = false;
+        let apiErrorMsg = '';
+        if (isOnline.value) {
+          try {
+            const res = await fetch(`${API_BASE}/masters/rekanan/import`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ items: importRekananParsedData.value, mode })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              apiSuccess = true;
+              const mRes = await fetch(`${API_BASE}/masters`);
+              if (mRes.ok) {
+                const mData = await mRes.json();
+                if (mData.data && mData.data.rekanan && mData.data.rekanan.length > 0) {
+                  rekananPresets.value = mData.data.rekanan;
+                }
+              }
+            }
+          } catch (errApi) {
+            apiErrorMsg = errApi.message;
+            console.warn('[Import Rekanan] Gagal simpan ke backend, lanjut ke update state lokal:', errApi.message);
+          }
+        }
+
+        if (!apiSuccess) {
+          if (mode === 'replace') {
+            rekananPresets.value = importRekananParsedData.value.map((item, idx) => ({
+              id: idx + 1,
+              ...item
+            }));
+          } else if (mode === 'upsert') {
+            let maxId = rekananPresets.value.length ? Math.max(...rekananPresets.value.map(r => r.id || 0)) : 0;
+            for (const newItem of importRekananParsedData.value) {
+              const cleanNewNpwp = (newItem.nikNpwp && newItem.nikNpwp !== '-') ? newItem.nikNpwp.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+              const existing = rekananPresets.value.find(r => {
+                const cleanExNpwp = (r.nikNpwp && r.nikNpwp !== '-') ? r.nikNpwp.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+                return (cleanNewNpwp && cleanExNpwp && cleanNewNpwp === cleanExNpwp) ||
+                  (newItem.nama && r.nama && r.nama.trim().toLowerCase() === newItem.nama.trim().toLowerCase());
+              });
+              if (existing) {
+                existing.nama = newItem.nama;
+                if (newItem.alamat) existing.alamat = newItem.alamat;
+                if (newItem.nikNpwp && newItem.nikNpwp !== '-') existing.nikNpwp = newItem.nikNpwp;
+                if (newItem.namaWp) existing.namaWp = newItem.namaWp;
+                if (newItem.bank) existing.bank = newItem.bank;
+                if (newItem.rekening) existing.rekening = newItem.rekening;
+                if (newItem.atasNama) existing.atasNama = newItem.atasNama;
+              } else {
+                maxId++;
+                rekananPresets.value.push({
+                  id: maxId,
+                  ...newItem
+                });
+              }
+            }
+          } else {
+            // Append mode
+            let maxId = rekananPresets.value.length ? Math.max(...rekananPresets.value.map(r => r.id || 0)) : 0;
+            for (const newItem of importRekananParsedData.value) {
+              maxId++;
+              rekananPresets.value.push({
+                id: maxId,
+                ...newItem
+              });
+            }
+          }
+        }
+
+        try {
+          const cached = JSON.parse(localStorage.getItem('bi_erp_cached_masters') || '{}');
+          cached.rekanan = rekananPresets.value;
+          localStorage.setItem('bi_erp_cached_masters', JSON.stringify(cached));
+        } catch (eCache) {}
+
+        const modeText = mode === 'replace' ? 'diganti seluruhnya' : (mode === 'upsert' ? 'disinkronkan/diperbarui' : 'ditambahkan');
+        const dbStatus = apiSuccess ? ' dan tersimpan permanen di database MySQL' : (apiErrorMsg ? ` (Penyimpanan lokal: ${apiErrorMsg})` : '');
+        showToast(`Berhasil mengimpor ${count} data Rekanan (${modeText}${dbStatus})!`, 'success');
+
+        closeImportRekananModal();
+      } catch (err) {
+        console.error('Error saat impor Rekanan:', err);
+        showToast('Terjadi kesalahan saat mengimpor data rekanan: ' + err.message, 'danger');
+      } finally {
+        isImportingRekanan.value = false;
+      }
     }
 
     const dhaSearch = ref('');
@@ -4461,47 +5062,12 @@ createApp({
     }
 
     function resetFormFields() {
-      const nextNum = 1475 + batchList.value.length;
-      const prefix = appSettings.prefixBatch || 'JR25 0';
-      form.id = null;
-      form.noBatch = `${prefix}${nextNum}`;
-      form.noDokumen = '';
-      form.tglTransaksi = new Date().toISOString().split('T')[0];
-      form.perihal = '';
-      form.invoices = [
-        { noInvoice: '', tglInvoice: form.tglTransaksi, nominal: 0 },
-        { noInvoice: '', tglInvoice: '', nominal: 0 },
-        { noInvoice: '', tglInvoice: '', nominal: 0 },
-        { noInvoice: '', tglInvoice: '', nominal: 0 }
-      ];
-      form.noFakturPajak = '';
-      form.tglFakturPajak = '';
-      form.namaRekanan = '';
-      form.alamatRekanan = '';
-      form.nikNpwp = '';
-      form.namaWpRekanan = '';
-      form.namaRekening = '';
-      form.nomorRekening = '';
-      form.coas = [
-        { rangkaianCoa: '', naturalAkun: '', nominal: 0 },
-        { rangkaianCoa: '', naturalAkun: '', nominal: 0 },
-        { rangkaianCoa: '', naturalAkun: '', nominal: 0 }
-      ];
-      form.yangMengajukan = '';
-      form.pangkatMengajukan = '';
-      form.yangMenyetujui = '';
-      form.pangkatMenyetujui = '';
-      pengajuSearchText.value = '';
-      penyetujuSearchText.value = '';
-      form.status = 'Draft';
-      selectedBatchId.value = null;
+      clearFormBatch();
     }
 
     function confirmClear() {
-      if (confirm('Kosongkan formulir untuk menginput batch baru?')) {
-        resetFormFields();
-        showToast('Formulir berhasil dikosongkan. Siap input batch baru.', 'info');
-      }
+      clearFormBatch();
+      showToast('Formulir berhasil dikosongkan. Siap input batch baru.', 'info');
     }
 
     const showDeleteModal = ref(false);
@@ -5213,7 +5779,7 @@ createApp({
       isErphrisMenuOpen, isLaporanMenuOpen, isDataMasterMenuOpen, previousView, goBack,
       invoiceApSearch, invoiceApDhaFilter, selectedDetailBatch, showDetailModal,
       filteredInvoiceApBatches, openDetailModal, closeDetailModal, angkaKeTerbilang,
-      getBatchStatusBadgeClass, getDetailInvoices, getDetailCoas, approveBatchDetail, rejectBatchDetail, printBatchDetail,
+      getBatchStatusBadgeClass, getHistoryStatusClass, getDetailInvoices, getDetailCoas, approveBatchDetail, rejectBatchDetail, printBatchDetail,
       pegawaiList, pegawaiSearch, filteredPegawaiList,
       masterBankList, bankSearch, filteredMasterBankList,
       showBankModal, bankFormMode, bankForm, openBankModal, editBank, saveBank, deleteBank,
@@ -5224,6 +5790,11 @@ createApp({
       openPegawaiModal, editPegawai, savePegawai, deletePegawai,
       rekananSearch, filteredRekananList, showRekananModal, rekananFormMode, rekananForm,
       openRekananModal, editRekanan, saveRekanan, deleteRekanan,
+      exportRekananToExcel, downloadRekananTemplate,
+      showImportRekananModal, openImportRekananModal, closeImportRekananModal,
+      importRekananFile, importRekananFileName, importRekananParsedData, importRekananMode, isImportingRekanan, importRekananError,
+      rekananFileInput, triggerRekananFileInput, handleRekananFileChange, handleRekananFileDrop, processImportRekanan,
+      importRekananPreviewRows,
       isRekananBankDropdownOpen, rekananBankSearchText, activeRekananBankIndex,
       allBankOptions, filteredRekananBankOptions, displayedRekananBankOptions,
       openRekananBankDropdown, toggleRekananBankDropdown, onRekananBankInput,
@@ -5258,7 +5829,7 @@ createApp({
       handleDhaAnggaranInput, handleDhaAnggaranBlur, handleNominalFocus,
       invoiceTotal, invoiceCount, coaTotal, coaDiff, coaStatus,
       validateStep1, validateStep2, setStep, nextStep, prevStep, jumpStep, clearInvoices,
-      resetFormBatch, resetFormBatchDirect, saveDraftBatch, saveCompleteBatch, openBatchInForm,
+      clearFormBatch, resetFormBatch, resetFormBatchDirect, saveDraftBatch, saveCompleteBatch, openBatchInForm,
       historySearch, historyStatusFilter, filteredHistoryBatches, historyTotalNominal, historyDraftCount,
       isDhaDropdownOpen, dhaFilterText, dhaSearchInputRef,
       isCoaDropdownOpen, coaFilterText, uniqueDhaList, filteredDhaOptions,

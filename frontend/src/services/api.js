@@ -246,6 +246,17 @@ export async function deleteRekananApi(id) {
   return data;
 }
 
+export async function importRekananApi(items, mode = 'upsert') {
+  const res = await fetch(`${API_BASE_URL}/masters/rekanan/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, mode })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Gagal mengimpor data rekanan ke database');
+  return data;
+}
+
 // Master DHA & Anggaran
 export async function getDhaApi() {
   const res = await fetch(`${API_BASE_URL}/masters/dha`);

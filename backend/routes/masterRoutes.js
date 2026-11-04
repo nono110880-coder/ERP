@@ -18,6 +18,7 @@ const {
   createRekanan,
   updateRekanan,
   deleteRekanan,
+  importRekanan,
   getDha,
   createDha,
   updateDha,
@@ -62,6 +63,7 @@ router.get('/rekanan', getRekanan);
 router.post('/rekanan', createRekanan);
 router.put('/rekanan/:id', updateRekanan);
 router.delete('/rekanan/:id', deleteRekanan);
+router.post('/rekanan/import', importRekanan);
 
 // Master DHA & Anggaran
 router.get('/dha', getDha);

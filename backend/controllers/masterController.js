@@ -478,9 +478,9 @@ async function getAllMasters(req, res, next) {
     // 7. Ambil data Tipe/Jenis Pembayaran dari tabel `jenis_pembayaran`
     let tipePembayaranList = [];
     try {
-      const [jpRows] = await pool.query('SELECT jenis FROM jenis_pembayaran ORDER BY id ASC');
+      const [jpRows] = await pool.query('SELECT DISTINCT jenis FROM jenis_pembayaran ORDER BY id ASC');
       if (jpRows && jpRows.length > 0) {
-        tipePembayaranList = jpRows.map(r => r.jenis).filter(Boolean);
+        tipePembayaranList = [...new Set(jpRows.map(r => r.jenis).filter(Boolean))];
       }
     } catch (errJp) {
       console.warn('[Master Warning] Gagal query jenis_pembayaran:', errJp.message);
@@ -493,14 +493,14 @@ async function getAllMasters(req, res, next) {
           const typeStr = colRows[0].Type;
           const match = typeStr.match(/enum\((.*)\)/i);
           if (match && match[1]) {
-            tipePembayaranList = match[1].split(',').map(s => s.replace(/'/g, '').trim());
+            tipePembayaranList = [...new Set(match[1].split(',').map(s => s.replace(/'/g, '').trim()))];
           }
         }
       } catch (eEnum) {}
     }
 
     if (tipePembayaranList.length === 0) {
-      tipePembayaranList = FALLBACK_MASTERS.tipePembayaran;
+      tipePembayaranList = [...new Set(FALLBACK_MASTERS.tipePembayaran)];
     }
 
     res.json({
@@ -1007,6 +1007,131 @@ async function deleteRekanan(req, res, next) {
   }
 }
 
+// POST /api/masters/rekanan/import
+async function importRekanan(req, res, next) {
+  try {
+    await ensureRekananTable();
+    const { items, mode = 'upsert' } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'Tidak ada data item rekanan yang dikirim untuk diimpor.' });
+    }
+
+    const validRows = [];
+    for (const item of items) {
+      const nama = String(item.nama || item.nama_rekanan || item.vendor || '').trim();
+      const alamat = String(item.alamat || '').trim();
+      const nikNpwp = String(item.nikNpwp || item.nik_npwp || item.npwp || item.nik || '-').trim() || '-';
+      const namaWp = String(item.namaWp || item.nama_wp || item.wajib_pajak || nama).trim() || nama;
+      const bank = String(item.bank || item.bank_default || '').trim();
+      const rekening = String(item.rekening || item.rekening_default || item.no_rekening || '').trim();
+      const atasNama = String(item.atasNama || item.atas_nama || item.atas_nama_default || nama).trim() || nama;
+
+      if (nama) {
+        validRows.push({
+          nama,
+          alamat,
+          nikNpwp,
+          namaWp,
+          bank,
+          rekening,
+          atasNama
+        });
+      }
+    }
+
+    if (validRows.length === 0) {
+      return res.status(400).json({ success: false, message: 'Data dalam file tidak mengandung baris nama rekanan yang valid.' });
+    }
+
+    const insertCols = '(nama_rekanan, alamat, nik_npwp, nama_wp, bank_default, rekening_default, atas_nama_default, is_active)';
+    const rowMapper = (r) => [r.nama, r.alamat, r.nikNpwp, r.namaWp, r.bank, r.rekening, r.atasNama, 1];
+
+    if (mode === 'replace') {
+      await pool.query(`DELETE FROM master_rekanan`);
+      const chunkSize = 500;
+      for (let i = 0; i < validRows.length; i += chunkSize) {
+        const chunk = validRows.slice(i, i + chunkSize).map(rowMapper);
+        await pool.query(
+          `INSERT INTO master_rekanan ${insertCols} VALUES ?`,
+          [chunk]
+        );
+      }
+    } else if (mode === 'upsert') {
+      const [existing] = await pool.query(`SELECT id, nama_rekanan, nik_npwp FROM master_rekanan WHERE is_active = 1`);
+      const nameMap = new Map();
+      const npwpMap = new Map();
+      for (const ex of existing) {
+        if (ex.nama_rekanan && ex.nama_rekanan.trim()) {
+          nameMap.set(ex.nama_rekanan.trim().toLowerCase(), ex.id);
+        }
+        if (ex.nik_npwp && ex.nik_npwp.trim() && ex.nik_npwp.trim() !== '-') {
+          npwpMap.set(ex.nik_npwp.trim().toLowerCase().replace(/[^a-z0-9]/g, ''), ex.id);
+        }
+      }
+
+      const toInsert = [];
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        for (const item of validRows) {
+          const nameKey = item.nama ? item.nama.toLowerCase() : '';
+          const cleanNpwp = (item.nikNpwp && item.nikNpwp !== '-') ? item.nikNpwp.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+          const existingId = (cleanNpwp && npwpMap.get(cleanNpwp)) || (nameKey && nameMap.get(nameKey));
+
+          if (existingId) {
+            await conn.query(
+              `UPDATE master_rekanan 
+               SET nama_rekanan = ?, alamat = ?, nik_npwp = ?, nama_wp = ?, bank_default = ?, rekening_default = ?, atas_nama_default = ?, is_active = 1 
+               WHERE id = ?`,
+              [item.nama, item.alamat, item.nikNpwp, item.namaWp, item.bank, item.rekening, item.atasNama, existingId]
+            );
+          } else {
+            toInsert.push(rowMapper(item));
+            if (nameKey) nameMap.set(nameKey, true);
+            if (cleanNpwp) npwpMap.set(cleanNpwp, true);
+          }
+        }
+
+        if (toInsert.length > 0) {
+          const chunkSize = 500;
+          for (let i = 0; i < toInsert.length; i += chunkSize) {
+            const chunk = toInsert.slice(i, i + chunkSize);
+            await conn.query(
+              `INSERT INTO master_rekanan ${insertCols} VALUES ?`,
+              [chunk]
+            );
+          }
+        }
+        await conn.commit();
+      } catch (upsertErr) {
+        await conn.rollback();
+        throw upsertErr;
+      } finally {
+        conn.release();
+      }
+    } else {
+      // Append mode
+      const chunkSize = 500;
+      for (let i = 0; i < validRows.length; i += chunkSize) {
+        const chunk = validRows.slice(i, i + chunkSize).map(rowMapper);
+        await pool.query(
+          `INSERT INTO master_rekanan ${insertCols} VALUES ?`,
+          [chunk]
+        );
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Berhasil mengimpor ${validRows.length} data rekanan ke database (Mode: ${mode})!`,
+      count: validRows.length
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // =============================================
 // CRUD MASTER DHA & ANGGARAN
 // =============================================
@@ -1377,6 +1502,7 @@ module.exports = {
   createRekanan,
   updateRekanan,
   deleteRekanan,
+  importRekanan,
   getDha,
   createDha,
   updateDha,
